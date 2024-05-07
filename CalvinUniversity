@@ -63,17 +63,8 @@ to populate logging DE's - Form is correct if when you try and publish you get a
     SET @shortcode = '34641'
     SET @keyword = 'KNIGHTS'
     
-    /* fill out [DENAME] for record search based on field to search by (TBD for each use case), otherwise use the Empty @rows instead */
-    /* 
-    SET @subkey = Lookup("Contact_Salesforce", "Id", "Email", @Email) 
-    SET @crmRows = @subscriberRows = RetrieveSalesforceObjects(
-                        "Contact",
-                        "Id",
-                        "Email", "=", @email )
-    set @crmRow = Row(@crmRows, 1)
-    set @subkey = Field(@crmRow, "Email") 
-    */
-    SET @subkey = ""
+    /* fill out [DENAME] for record search based on field to search by (TBD for each use case), otherwise use the Empty @rows instead  */
+    SET @subkey = Lookup("ent.Contact_Salesforce", "Id", "Email", @email)
     SET @contact = IIf(Empty(@subkey), @email, @subkey)
     
     /* fill out [DENAME] for insert of submitted form data into DE */
@@ -113,7 +104,7 @@ to populate logging DE's - Form is correct if when you try and publish you get a
     ELSE
         SET @message = "No Optin Submitted due to optin flag not being to true"
     ENDIF
-]%%Phone:%%=v(@fullPhone)=%% | InsertSuccess:%%=v(@Insert)=%% | QmoStatus:%%=v(@QueueMOReturn)=%% | QmoResponse:%%=v(@status)=%%
+]%% Subkey:%%=v(@contact)=%% | Phone:%%=v(@fullPhone)=%% | InsertSuccess:%%=v(@Insert)=%% | QmoStatus:%%=v(@QueueMOReturn)=%% | QmoResponse:%%=v(@status)=%%
 <script runat=server>
 } catch(e) {
   Variable.SetValue("@Message", e.message)
