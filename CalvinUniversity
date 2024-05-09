@@ -11,8 +11,8 @@ to populate logging DE's - Form is correct if when you try and publish you get a
     
     /* Populate with installed package information for client installing for */
     SET @baseurl = 'https://mcyqgbhfm0yt7wtp75y8l55v1gp1'
-    SET @id = 'ba3lyzq0wsgvhn3hjpp98ng7'
-    SET @secret = '6B5kMTSDoe7ZosLxnq7ek46O'
+    SET @id = 'CLIENTID'
+    SET @secret = 'CLIENTSECRET'
     SET @tokenurl = CONCAT(@baseurl,'.auth.marketingcloudapis.com/v2/token')
     SET @queuemourl = CONCAT(@baseurl,'.rest.marketingcloudapis.com/sms/v1/QueueMO/')
     
