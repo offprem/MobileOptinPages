@@ -1,0 +1,129 @@
+<script runat=server>
+  /* Added to solve cors issue clients may see */
+  Platform.Load("Core","1");
+  HTTPHeader.SetValue("Access-Control-Allow-Methods","GET, POST");
+  HTTPHeader.SetValue("Access-Control-Allow-Origin","*");
+try {
+</script>
+
+%%[
+    /* This solution is for forms not built in SFMC submitting to Cloudpage endpoint, meant to work with ampscript in optin message
+to populate logging DE's - Form is correct if when you try and publish you get an Error about InsertData call*/
+
+    /* Populate with installed package information for client installing for */
+    SET @baseurl = 'https://mctjf4kb35990mx6jbf1bhsvwj0y'
+    SET @id = 'w47ifux6tu3pyemz5y3k2nij'
+    SET @secret = 'I8bPMIEFY8gr62UnkYiZ7USF'
+    SET @tokenurl = CONCAT(@baseurl,'.auth.marketingcloudapis.com/v2/token')
+    SET @queuemourl = CONCAT(@baseurl,'.rest.marketingcloudapis.com/sms/v1/QueueMO/')
+
+    /* Process will be set to use sample data if @Debug == 1 */
+    SET @Debug = 0
+    IF @Debug == 1 THEN
+        /* Debug data set */
+        SET @firstName = "Brodrick"
+        SET @lastName = "Gaines"
+        SET @email = "jamesholmes0134@gmail.com"
+        SET @phone = "17653815030"
+        SET @optinflag = true
+        SET @source = "PAW Submission"
+        SET @mid = '7289391'
+        SET @shortcode = '20894'
+        SET @keyword = 'JOINTEST'
+    ELSE
+        /* replace values in "" with field names being submitted from form */
+        SET @email = RequestParameter("email")
+        SET @phone = RequestParameter("phone")
+        SET @firstname = RequestParameter("firstname")
+        SET @lastname = RequestParameter("lastname")
+        SET @source = RequestParameter("source")
+        SET @optinflag = RequestParameter("optinflag")
+    ENDIF
+
+  /* Validate if email and phone is valid, clean up phone number from special characters and add leading 1 to 10 digit numbers */
+    SET @cleanphone = TRIM(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(@phone,"-",""), " ",""), ".",""), "(",""), ")",""), "+",""))
+    IF IsPhoneNumber(@cleanphone) THEN
+        IF LENGTH(@cleanphone) == 10 THEN
+            SET @fullPhone = CONCAT('1',@cleanphone)
+        ELSE             
+            SET @fullPhone = @cleanphone
+        ENDIF
+        SET @phonevalid = "Yes"
+    ELSE 
+        SET @phonevalid = "No"
+    ENDIF
+
+    IF IsEmailAddress(@email) THEN
+        SET @emailvalid = "Yes"
+    ELSE 
+        SET @emailvalid = "No"
+    ENDIF
+
+    /* Option 2 -  for single shortcode & keyword combinations */
+    SET @mid = '7289391'
+    SET @shortcode = '20894'
+    SET @keyword = 'JOINTEST'
+
+    /* fill out [DENAME] for record search based on field to search by (TBD for each use case), otherwise use the Empty @rows instead */
+    /* Option 1 if doing a search vs existing source - Change DE to Policyholders at implementation time */
+    SET @policyrows = LookupRows("Policyholders_Clone", "Email", @email)
+    SET @rowCount = ROWCOUNT(@policyrows)
+    SET @row = row(@policyrows, 1)
+    SET @subkey = field(@row,"SubscriberKey")
+    SET @contact = IIf(Empty(@subkey), @subkey, @subkey)
+    
+    /* fill out [DENAME] for insert of submitted form data into DE */
+    SET @insert = InsertData("FormSubmissions","phone",@fullPhone,"email",@email,"firstname",@firstname,"lastname",@lastname,"source",@source,"optinflag",@optinflag)
+
+    /* This process assembles payloads and fires api calls to get accesstoken and fire QueueMO call to SFMC */
+    var @QueueMOReturn
+
+    /* Remove RowCount check from line below if not using a ConfigDE to pull Keywords and Code combinations */
+    IF @optinflag AND NOT EMPTY(@contact) THEN 
+        set @status = ""
+        set @response = ""
+        set @message = "Matching Entry found in policyholders"
+        set @auth = CONCAT('{"grant_type":"client_credentials","client_id":"',@id,'","client_secret":"',@secret,'","account_id":"',@mid,'"}')
+        set @tokenReturnCode = HTTPPOST(@tokenurl,"application/json",@auth,@token)
+
+        IF @tokenReturnCode == 200 AND @phonevalid == "Yes" THEN
+            set @regex = '^{"access_token":"([^"]*)"'
+            set @accessToken = Concat("Bearer ", REGEXMATCH(@token,@regex,1))
+            
+            /* Option 2 = Subkey */
+            set @QueueMO_Sub = Concat('{"subscribers":[{"mobilenumber":"', @fullPhone ,'","subscriberkey":"',@contact,'"}],"shortCode":"', @shortcode, '","messageText":"', @keyword, '"}')
+            set @QueueMOReturn = HTTPPost2(@queuemourl,"application/json",@QueueMO_Sub,false,@status,@response,"Authorization", @accessToken)
+
+            set @isodate = FormatDate(Now(),"iso")
+            set @queueInsert = InsertData("QueueMO_LOG","phone",@fullphone,"subscriberkey",@contact,"status",@QueueMOReturn,"response",@status,"submitdate",@isodate)      
+        ENDIF
+        
+        /* QueueMO END */
+        IF @QueueMOReturn == 202 THEN
+            SET @message = "Successful Submission to QueueMO"
+        ELSE
+            SET @message = "Failed Submission to QueueMO"
+        ENDIF
+   
+        /* Write all entries besides one used in QueueMO to Mobile Optin Automation DE */
+        IF @rowCount > 1 THEN
+            for @counter = 2 to @rowCount do
+                var @subkeyinsert
+                set @lineItem = row(@policyrows, @counter)
+                SET @subkeyinsert = field(@lineItem,"SubscriberKey")
+                set @insertauto = InsertData("MobileImportPolicyHolder_Automation", "SubscriberKey", @subkeyinsert, "Mobile", @fullPhone)
+            next @counter
+        ENDIF
+        
+    ELSEIF ROWCOUNT(@policyrows) == 0 THEN 
+        SET @message = "No matching entries found in policyholders to optin anyone"
+    ELSE
+        SET @message = "No Optin Submitted due to optin flag not being to true"
+    ENDIF
+
+]%% %%=v(@fullPhone)=%% | %%=v(@queuemourl)=%% | %%=v(@contact)=%% | %%=v(@insert)=%% | AccessToken = GOOD | %%=v(@tokenReturnCode)=%% | %%=v(@phonevalid)=%% | %%=v(@QueueMO_Sub)=%% | %%=v(@QueueMOReturn)=%% | %%=v(@queueInsert)=%% | %%=v(@message)=%% | %%=v(@counter)=%% | %%=v(@insertauto)=%%
+<script runat=server>
+} catch(e) {
+  Variable.SetValue("@Message", e.message)
+}
+</script>
